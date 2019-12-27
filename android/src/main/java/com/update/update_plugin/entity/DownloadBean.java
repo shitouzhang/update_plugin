@@ -4,15 +4,41 @@ import android.os.Parcel;
 import android.os.Parcelable;
 
 public class DownloadBean implements Parcelable {
+    public static final Parcelable.Creator<DownloadBean> CREATOR = new Parcelable.Creator<DownloadBean>() {
+        @Override
+        public DownloadBean createFromParcel(Parcel source) {
+            return new DownloadBean(source);
+        }
+
+        @Override
+        public DownloadBean[] newArray(int size) {
+            return new DownloadBean[size];
+        }
+    };
     //当前进度
     private int progress;
+    //downloadId
     private long id;
-    private String percent;
+    private double percent;
     private double planTime;
     private int status;
     private double speed;
     private int total;
     private String address;
+
+    public DownloadBean() {
+    }
+
+    protected DownloadBean(Parcel in) {
+        this.progress = in.readInt();
+        this.id = in.readLong();
+        this.percent = in.readDouble();
+        this.planTime = in.readDouble();
+        this.status = in.readInt();
+        this.speed = in.readDouble();
+        this.total = in.readInt();
+        this.address = in.readString();
+    }
 
     public int getProgress() {
         return progress;
@@ -30,11 +56,11 @@ public class DownloadBean implements Parcelable {
         this.id = id;
     }
 
-    public String getPercent() {
+    public double getPercent() {
         return percent;
     }
 
-    public void setPercent(String percent) {
+    public void setPercent(double percent) {
         this.percent = percent;
     }
 
@@ -78,7 +104,6 @@ public class DownloadBean implements Parcelable {
         this.address = address;
     }
 
-
     @Override
     public int describeContents() {
         return 0;
@@ -88,37 +113,11 @@ public class DownloadBean implements Parcelable {
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeInt(this.progress);
         dest.writeLong(this.id);
-        dest.writeString(this.percent);
+        dest.writeDouble(this.percent);
         dest.writeDouble(this.planTime);
         dest.writeInt(this.status);
         dest.writeDouble(this.speed);
         dest.writeInt(this.total);
         dest.writeString(this.address);
     }
-
-    public DownloadBean() {
-    }
-
-    protected DownloadBean(Parcel in) {
-        this.progress = in.readInt();
-        this.id = in.readLong();
-        this.percent = in.readString();
-        this.planTime = in.readDouble();
-        this.status = in.readInt();
-        this.speed = in.readDouble();
-        this.total = in.readInt();
-        this.address = in.readString();
-    }
-
-    public static final Parcelable.Creator<DownloadBean> CREATOR = new Parcelable.Creator<DownloadBean>() {
-        @Override
-        public DownloadBean createFromParcel(Parcel source) {
-            return new DownloadBean(source);
-        }
-
-        @Override
-        public DownloadBean[] newArray(int size) {
-            return new DownloadBean[size];
-        }
-    };
 }

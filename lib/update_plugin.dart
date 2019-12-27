@@ -6,24 +6,30 @@ class UpdatePlugin {
   static const MethodChannel _channel = const MethodChannel('update_plugin');
 
   static const EventChannel _StreamChannel =
-      const EventChannel('update_plugin/s');
+  const EventChannel('update_plugin/s');
 
   static Future<String> get platformVersion async {
     final String version = await _channel.invokeMethod('getPlatformVersion');
     return version;
   }
 
-  //startDownload
+  ///开始下载
   static Future<void> downloadApk(String url) async {
-    _channel.invokeMethod("downloadApk", url);
+    await _channel.invokeMethod("downloadApk", url);
   }
 
-  //cancelUpdate
+  ///取消下载
   static Future<bool> cancelUpdateApk() async {
-    _channel.invokeMethod("cancelUpdate");
-    return true;
+    return await _channel.invokeMethod("cancelUpdate");
   }
 
+  static Future<bool> installApk(int id) async {
+    await _channel.invokeMethod("installApk", {
+      'id': id,
+    });
+  }
+
+  ///下载监听
   static Stream<DownloadInfo> get stream {
     assert(Platform.isAndroid, 'This method only support android application');
     return _StreamChannel.receiveBroadcastStream()
@@ -34,24 +40,24 @@ class UpdatePlugin {
 class DownloadInfo {
   final int progress;
   final int id;
-  final String percent;
+  final double percent;
   final int total;
   final double planTime;
   final double speed;
   final String address;
   final DownloadStatus status;
 
-  DownloadInfo(
-      {this.progress,
-      this.id,
-      this.percent,
-      this.total,
-      this.planTime,
-      this.speed,
-      this.address,
-      this.status});
+  DownloadInfo({this.progress,
+    this.id,
+    this.percent,
+    this.total,
+    this.planTime,
+    this.speed,
+    this.address,
+    this.status});
 
-  factory DownloadInfo.formMap(dynamic map) => DownloadInfo(
+  factory DownloadInfo.formMap(dynamic map) =>
+      DownloadInfo(
         progress: map['progress'],
         id: map['id'],
         percent: map['percent'],

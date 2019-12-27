@@ -9,21 +9,18 @@ import android.provider.Settings;
 import android.widget.Toast;
 
 import androidx.annotation.Nullable;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.PluginRegistry;
 
 import static com.update.update_plugin.UpdatePlugin.GET_UNKNOWN_APP_SOURCES;
 import static com.update.update_plugin.UpdatePlugin.INSTALL_PACKAGES_REQUESTCODE;
 
-public class PermissonResult implements PluginRegistry.ActivityResultListener,
+public class PermissionsResult implements PluginRegistry.ActivityResultListener,
         PluginRegistry.RequestPermissionsResultListener {
 
     private final Activity activity;
-    private AppUpdateUtils updateUtils;
+    private UpdateManager updateUtils;
 
-    public PermissonResult(Activity activity,AppUpdateUtils updateUtils) {
+    public PermissionsResult(Activity activity, UpdateManager updateUtils) {
         this.activity=activity;
         this.updateUtils = updateUtils;
     }

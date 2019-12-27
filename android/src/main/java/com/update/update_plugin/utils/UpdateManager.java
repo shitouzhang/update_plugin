@@ -1,15 +1,14 @@
 package com.update.update_plugin.utils;
 
-import android.app.Activity;
 import android.app.DownloadManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.net.ConnectivityManager;
 import android.net.Uri;
 import android.os.Build;
-import android.os.Bundle;
 import android.os.Environment;
 import android.text.TextUtils;
 import android.util.Log;
@@ -24,7 +23,6 @@ import com.update.update_plugin.view.UpdateRemindDialog;
 
 import androidx.annotation.RequiresApi;
 import androidx.core.content.FileProvider;
-import androidx.fragment.app.FragmentActivity;
 
 
 import java.io.File;
@@ -32,32 +30,23 @@ import java.lang.ref.WeakReference;
 import java.util.Objects;
 
 /**
- * @author hule
+ * @author https://github.com/NewHuLe/AppUpdate
  * @date 2019/7/11 9:34
  * description: 下载更新工具类
  */
-public class AppUpdateUtils implements UpdateDialogListener {
+public class UpdateManager implements UpdateDialogListener {
 
-    private static final String TAG = "AppUpdateUtils";
+    private static final String TAG = "UpdateManager";
     /**
      * 是否启动自动安装
      */
     public static boolean isAutoInstall;
-    /**
-     * context的弱引用
-     */
     private final WeakReference<Context> wrfContext;
-    /**
-     * 系统DownloadManager
-     */
     private DownloadManager downloadManager;
     /**
      * 上次下载的id
      */
     private long lastDownloadId = -1;
-    /**
-     * 更新的实体参数
-     */
     private AppUpdate appUpdate;
     /**
      * 下载与主页之间的通信
@@ -67,21 +56,8 @@ public class AppUpdateUtils implements UpdateDialogListener {
      * 下载监听
      */
     private DownloadObserver downloadObserver;
-    /**
-     * 更新提醒对话框
-     */
-    private UpdateRemindDialog updateRemindDialog;
-    /**
-     * 带进度的更新框
-     */
-    private UpdateProgressDialog progressDialog;
 
-    /**
-     * 配置上下文，必须传
-     *
-     * @param context 上下文
-     */
-    public AppUpdateUtils(Context context) {
+    public UpdateManager(Context context) {
         wrfContext = new WeakReference<>(context);
     }
 
@@ -95,19 +71,14 @@ public class AppUpdateUtils implements UpdateDialogListener {
     public void startUpdate(AppUpdate appUpdate, MainPageExtraListener mainPageExtraListener) {
         Context context = wrfContext.get();
         if (context == null) {
-            throw new NullPointerException("AppUpdateUtils======context不能为null，请先在构造方法中传入！");
+            throw new NullPointerException("UpdateManager======context不能为null，请先在构造方法中传入！");
         }
         if (appUpdate == null) {
-            throw new NullPointerException("AppUpdateUtils======appUpdate不能为null，请配置相关更新信息！");
+            throw new NullPointerException("UpdateManager======appUpdate不能为null，请配置相关更新信息！");
         }
         this.appUpdate = appUpdate;
         isAutoInstall = appUpdate.getIsSlentMode();
         this.mainPageExtraListener = mainPageExtraListener;
-//        Bundle bundle = new Bundle();
-//        bundle.putParcelable("appUpdate", appUpdate);
-//        updateRemindDialog = UpdateRemindDialog.newInstance(bundle).addUpdateListener(this);
-//        updateRemindDialog.show(((FragmentActivity) context).getSupportFragmentManager(), "AppUpdateUtils");
-
         updateDownLoad();
     }
 
@@ -128,7 +99,10 @@ public class AppUpdateUtils implements UpdateDialogListener {
         try {
             Context context = wrfContext.get();
             if (context != null) {
-                // 获取下载管理器
+                if (!downLoadMangerIsEnable(context)) {
+                    downFromBrowser();
+                    return;
+                }
                 downloadManager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
                 clearCurrentTask();
                 // 下载地址如果为null,抛出异常
@@ -140,37 +114,56 @@ public class AppUpdateUtils implements UpdateDialogListener {
                 if (TextUtils.isEmpty(appUpdate.getSavePath())) {
                     //使用系统默认的下载路径 此处为应用内 /android/data/packages ,所以兼容7.0
                     request.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, context.getPackageName() + ".apk");
+                    deleteApkFile(Objects.requireNonNull(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS + File.separator + context.getPackageName() + ".apk")));
                 } else {
                     // 自定义的下载目录,注意这是涉及到android Q的存储权限，建议不要用getExternalStorageDirectory（）
                     request.setDestinationInExternalFilesDir(context, appUpdate.getSavePath(), context.getPackageName() + ".apk");
                     // 清除本地缓存的文件
                     deleteApkFile(Objects.requireNonNull(context.getExternalFilesDir(appUpdate.getSavePath())));
                 }
+                request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_MOBILE | DownloadManager.Request.NETWORK_WIFI);
+                // 部分机型（暂时发现Nexus 6P）无法下载，猜测原因为默认下载通过计量网络连接造成的，通过动态判断一下
+                ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (connectivityManager != null) {
+                    boolean activeNetworkMetered = connectivityManager.isActiveNetworkMetered();
+                    request.setAllowedOverMetered(activeNetworkMetered);
+                }
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                    request.allowScanningByMediaScanner();
+                }
                 // 设置通知栏的标题
-//                request.setTitle(getAppName());
                 request.setTitle("应用更新");
-                // 设置通知栏的描述
-                request.setDescription("正在下载中...");
+                request.setDescription("应用正在下载中...");
                 // 设置媒体类型为apk文件
                 request.setMimeType("application/vnd.android.package-archive");
-                // 开启下载，返回下载id
                 lastDownloadId = downloadManager.enqueue(request);
                 // 如需要进度及下载状态，增加下载监听,监听数据变化
                 if (!appUpdate.getIsSlentMode()) {
-                    DownloadHandler downloadHandler = new DownloadHandler(context, downloadObserver, progressDialog, mainPageExtraListener, this, downloadManager, lastDownloadId, appUpdate);
+                    DownloadHandler downloadHandler = new DownloadHandler(context, downloadObserver, mainPageExtraListener, downloadManager, lastDownloadId);
+                    //下载消息给handle处理
                     downloadObserver = new DownloadObserver(downloadHandler, downloadManager, lastDownloadId);
                     context.getContentResolver().registerContentObserver(Uri.parse("content://downloads/my_downloads"), true, downloadObserver);
                 }
-
-            } else {
-                Log.d(TAG, "context==null");
             }
         } catch (Exception e) {
             e.printStackTrace();
             // 防止有些厂商更改了系统的downloadManager
             downloadFromBrowse();
         }
+    }
 
+    /**
+     * downloadManager 是否可用
+     *
+     * @param context 上下文
+     * @return true 可用
+     */
+    private boolean downLoadMangerIsEnable(Context context) {
+        int state = context.getApplicationContext().getPackageManager()
+                .getApplicationEnabledSetting("com.android.providers.downloads");
+        return !(state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED ||
+                state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
+                || state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED);
     }
 
     /**
@@ -189,22 +182,6 @@ public class AppUpdateUtils implements UpdateDialogListener {
             }
         }
         destFileDir.delete();
-    }
-
-    /**
-     * 获取应用程序名称
-     */
-    private String getAppName() {
-        try {
-            Context context = wrfContext.get();
-            PackageManager packageManager = context.getPackageManager();
-            PackageInfo packageInfo = packageManager.getPackageInfo(context.getPackageName(), 0);
-            int labelRes = packageInfo.applicationInfo.labelRes;
-            return context.getResources().getString(labelRes);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return "下载";
     }
 
     /**
@@ -249,34 +226,12 @@ public class AppUpdateUtils implements UpdateDialogListener {
     @Override
     @RequiresApi(api = Build.VERSION_CODES.KITKAT)
     public void updateDownLoad() {
-        // 立即更新，取消更新对话框
-//        if (updateRemindDialog != null && updateRemindDialog.isShowing && wrfContext.get() != null && !((Activity) wrfContext.get()).isFinishing()) {
-//            updateRemindDialog.dismiss();
-//        }
-//        // 根据状态是否弹进度框
-//        if (wrfContext.get() != null && !appUpdate.getIsSlentMode()) {
-//            Bundle bundle = new Bundle();
-//            bundle.putInt("forceUpdate", appUpdate.getForceUpdate());
-//            progressDialog = UpdateProgressDialog.newInstance(bundle);
-//            progressDialog.addUpdateDialogListener(this);
-//            progressDialog.show(((FragmentActivity) wrfContext.get()).getSupportFragmentManager(), "AppUpdateUtils");
-//        }
-        // 开启下载
         downLoadApk();
     }
 
     @Override
     @RequiresApi(api = Build.VERSION_CODES.KITKAT)
     public void updateRetry() {
-        // 重试
-        // 根据状态是否弹进度框
-//        if (wrfContext.get() != null && !appUpdate.getIsSlentMode()) {
-//            Bundle bundle = new Bundle();
-//            bundle.putInt("forceUpdate", appUpdate.getForceUpdate());
-//            progressDialog = UpdateProgressDialog.newInstance(bundle);
-//            progressDialog.addUpdateDialogListener(this);
-//            progressDialog.show(((FragmentActivity) wrfContext.get()).getSupportFragmentManager(), "AppUpdateUtils");
-//        }
         // 开启下载
         downLoadApk();
     }
@@ -290,12 +245,6 @@ public class AppUpdateUtils implements UpdateDialogListener {
     @Override
     public void cancelUpdate() {
         // 取消更新
-//        if (updateRemindDialog != null && updateRemindDialog.isShowing && wrfContext.get() != null && !((Activity) wrfContext.get()).isFinishing()) {
-//            updateRemindDialog.dismiss();
-//        }
-//        if (progressDialog != null && progressDialog.isShowing && wrfContext.get() != null && !((Activity) wrfContext.get()).isFinishing()) {
-//            progressDialog.dismiss();
-//        }
         clearCurrentTask();
     }
 

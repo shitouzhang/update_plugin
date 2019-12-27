@@ -1,7 +1,6 @@
 package com.update.update_plugin;
 
 import android.app.DownloadManager;
-import android.content.Intent;
 import android.database.ContentObserver;
 import android.database.Cursor;
 import android.os.Bundle;
@@ -10,6 +9,8 @@ import android.os.Message;
 import android.util.Log;
 
 import com.update.update_plugin.entity.DownloadBean;
+
+import java.math.BigDecimal;
 
 /**
  * @author hule
@@ -31,16 +32,13 @@ public class DownloadObserver extends ContentObserver {
      * 记录成功或者失败的状态，主要用来只发送一次成功或者失败
      */
     private boolean isEnd = false;
+    private long lastDownloadId;
 
-    /**
-     * Creates a content observer.
-     *
-     * @param handler The handler to run {@link #onChange} on, or null if none.
-     */
     public DownloadObserver(Handler handler, DownloadManager downloadManager, long downloadId) {
         super(handler);
         this.handler = handler;
         this.downloadManager = downloadManager;
+        this.lastDownloadId = downloadId;
         query = new DownloadManager.Query().setFilterById(downloadId);
     }
 
@@ -66,14 +64,13 @@ public class DownloadObserver extends ContentObserver {
             String address = cursor.getString(cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI));
             //下载文件的URL链接
             String url = cursor.getString(cursor.getColumnIndex(DownloadManager.COLUMN_URI));
-            // 当前进度
-            int mProgress;
-            if (totalSize != 0) {
-                mProgress = (currentSize * 100) / totalSize;
-            } else {
-                mProgress = 0;
-            }
-            Log.d(TAG, String.valueOf(mProgress));
+            //计划完成时间
+//            double planTime = (total - progress) / (speed * 1024f);
+            //当前进度
+            double percent = new BigDecimal((currentSize * 1.0f / totalSize) * 100).setScale(2, BigDecimal.ROUND_HALF_UP).doubleValue();
+            Log.d(TAG, "totalSize--->" + totalSize);
+            Log.d(TAG, "currentSize--->" + currentSize);
+            Log.d(TAG, "当前进度percent--->" + percent);
             switch (status) {
                 case DownloadManager.STATUS_PAUSED:
                     // 下载暂停
@@ -98,10 +95,10 @@ public class DownloadObserver extends ContentObserver {
                     Message message = new Message();
                     message.what = DownloadManager.STATUS_RUNNING;
                     downloadBean.setStatus(DownloadManager.STATUS_RUNNING);
-                    downloadBean.setProgress(mProgress);
+                    downloadBean.setProgress(currentSize);
                     downloadBean.setTotal(totalSize);
-                    downloadBean.setPercent("-1");
-//                    downloadBean.setId();
+                    downloadBean.setPercent(percent);
+                    downloadBean.setId(lastDownloadId);
                     downloadBean.setPlanTime(planTime);
                     downloadBean.setSpeed(speed);
                     downloadBean.setAddress(address);

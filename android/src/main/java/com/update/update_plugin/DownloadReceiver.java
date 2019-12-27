@@ -9,7 +9,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.text.TextUtils;
 
-import com.update.update_plugin.utils.AppUpdateUtils;
+import com.update.update_plugin.utils.UpdateManager;
 
 import androidx.annotation.RequiresApi;
 import androidx.core.content.FileProvider;
@@ -28,7 +28,7 @@ public class DownloadReceiver extends BroadcastReceiver {
     @RequiresApi(api = Build.VERSION_CODES.KITKAT)
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (intent != null && AppUpdateUtils.isAutoInstall) {
+        if (intent != null && UpdateManager.isAutoInstall) {
             if (Objects.requireNonNull(intent.getAction()).equals(DownloadManager.ACTION_DOWNLOAD_COMPLETE)) {
                 // 下载完成
                 long downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);

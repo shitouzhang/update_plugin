@@ -2,53 +2,44 @@ package com.update.update_plugin;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.Application;
 import android.app.DownloadManager;
 import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Build;
-import android.util.Log;
 
 import com.update.update_plugin.entity.AppUpdate;
-import com.update.update_plugin.entity.ResultMap;
 import com.update.update_plugin.listener.MainPageExtraListener;
-import com.update.update_plugin.utils.AppUpdateUtils;
-import com.update.update_plugin.utils.DownLoadUtils;
-import com.update.update_plugin.utils.DownloadHandler;
-import com.update.update_plugin.utils.DownloadStatus;
-import com.update.update_plugin.utils.Permisson;
-import com.update.update_plugin.utils.PermissonResult;
-import com.update.update_plugin.view.UpdateRemindDialog;
+import com.update.update_plugin.manage.ReceiveManage;
+import com.update.update_plugin.utils.UpdateManager;
+import com.update.update_plugin.utils.PermissionsResult;
 
 import androidx.annotation.RequiresApi;
 import androidx.core.app.ActivityCompat;
-import androidx.fragment.app.FragmentActivity;
 
+import io.flutter.embedding.engine.plugins.FlutterPlugin;
+import io.flutter.embedding.engine.plugins.activity.ActivityAware;
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
 import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
-import io.flutter.plugin.common.PluginRegistry.Registrar;
 
 import static com.update.update_plugin.utils.DownloadHandler.DOWNLOAD_STATUS;
 
 /**
  * UpdatePlugin
  */
-public class UpdatePlugin implements MethodCallHandler, MainPageExtraListener, EventChannel.StreamHandler {
+public class UpdatePlugin implements FlutterPlugin, MethodCallHandler,
+        MainPageExtraListener, EventChannel.StreamHandler, ActivityAware {
     // 8.0未知应用
     public static final int INSTALL_PACKAGES_REQUESTCODE = 1112;
-
     public static final int GET_UNKNOWN_APP_SOURCES = 1113;
-    static Permisson permisson;
-    static MethodChannel channel;
-    static Registrar registrar;
-    static Activity activity;
-    private static Application application;
-    private static AppUpdateUtils updateUtils;
+    private static MethodChannel channel;
+    private static EventChannel eventChannel;
+    private static UpdateManager updateUtils;
+    private static ReceiveManage receiveManage;
+    private Activity activity;
     //    API等级19：Android 4.4 KitKat
 //    API等级20：Android 4.4W
 //    API等级21：Android 5.0 Lollipop
@@ -67,30 +58,32 @@ public class UpdatePlugin implements MethodCallHandler, MainPageExtraListener, E
     // 在取消订阅的时候，将注册的广播注销，防止内存泄漏
     private BroadcastReceiver downloadReceiver;
 
-    /**
-     * Plugin registration.
-     */
-    public static void registerWith(Registrar registrar) {
-        UpdatePlugin.registrar = registrar;
-        channel = new MethodChannel(registrar.messenger(), "update_plugin");
-        channel.setMethodCallHandler(new UpdatePlugin());
-        final EventChannel eventChannel = new EventChannel(registrar.messenger(), "update_plugin/s");
-        eventChannel.setStreamHandler(new UpdatePlugin());
-        activity = registrar.activity();
-        application = activity.getApplication();
-//        permisson = new Permisson(activity);
-        updateUtils = new AppUpdateUtils(activity);
-        PermissonResult permissonResult = new PermissonResult(activity, updateUtils);
-        registrar.addActivityResultListener(permissonResult);
-        registrar.addRequestPermissionsResultListener(permissonResult);
+    public static void showToast(String msg) {
+        System.out.println(msg);
+        channel.invokeMethod("showToast", msg);
+    }
 
+    /**
+     * 关联引擎
+     *
+     * @param binding
+     */
+    @Override
+    public void onAttachedToEngine(FlutterPluginBinding binding) {
+        channel = new MethodChannel(binding.getFlutterEngine().getDartExecutor(), "update_plugin");
+        channel.setMethodCallHandler(new UpdatePlugin());
+        eventChannel = new EventChannel(binding.getFlutterEngine().getDartExecutor(), "update_plugin/s");
+        eventChannel.setStreamHandler(new UpdatePlugin());
     }
 
 //http://appdl.hicloud.com/dl/appdl/application/apk/66/66b10ac29c9549cb892a5c430b1c090e/com.sqparking.park.1901261600.apk?mkey=5c516e787ae099f7&f=9e4a&sign=portal@portal1548830859005&source=portalsite
 
-    public static void showToast(String msg) {
-        System.out.println(msg);
-        channel.invokeMethod("showToast", msg);
+    @Override
+    public void onDetachedFromEngine(FlutterPluginBinding binding) {
+        channel.setMethodCallHandler(null);
+        channel = null;
+        eventChannel.setStreamHandler(null);
+        eventChannel = null;
     }
 
     //BasicMessageChannel 用于传递字符串和半结构化的信息。
@@ -102,13 +95,15 @@ public class UpdatePlugin implements MethodCallHandler, MainPageExtraListener, E
         if (call.method.equals("getPlatformVersion")) {
             result.success("Android " + android.os.Build.VERSION.RELEASE);
         } else if (call.method.endsWith("downloadApk")) {
-//      DownLoadUtils.downLoadApk(registrar.activity(), call.arguments.toString(),permisson,result);
             checkUpdate(call.arguments.toString());
+//            DownLoadUtils.downLoadApk(registrar.activity(), call.arguments.toString(),permisson,result);
 //            UpdateRemindDialog updateRemindDialog = UpdateRemindDialog.newInstance(null);
-//            updateRemindDialog.show(((FragmentActivity) activity).getSupportFragmentManager(), "AppUpdateUtils");
+//            updateRemindDialog.show(((FragmentActivity) activity).getSupportFragmentManager(), "UpdateManager");
         } else if (call.method.equals("cancelUpdate")) {
             //取消更新
             updateUtils.cancelUpdate();
+        } else if (call.method.equals("installApk")) {
+            receiveManage.installApkById(updateUtils, (int) call.argument("id"));
         } else {
             result.notImplemented();
         }
@@ -151,7 +146,7 @@ public class UpdatePlugin implements MethodCallHandler, MainPageExtraListener, E
     @Override
     public void applyAndroidOInstall() {
         //请求安装未知应用来源的权限
-//        ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.REQUEST_INSTALL_PACKAGES}, INSTALL_PACKAGES_REQUESTCODE);
+        ActivityCompat.requestPermissions(activity, new String[]{Manifest.permission.REQUEST_INSTALL_PACKAGES}, INSTALL_PACKAGES_REQUESTCODE);
     }
 
     @Override
@@ -159,49 +154,48 @@ public class UpdatePlugin implements MethodCallHandler, MainPageExtraListener, E
         IntentFilter filter = new IntentFilter();
         filter.addAction(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
         filter.addAction(DOWNLOAD_STATUS);
-        downloadReceiver = createBroadcastReceiver(eventSink);
-        application.registerReceiver(downloadReceiver, filter);
+        downloadReceiver = receiveManage.createBroadcastReceiver(eventSink);
+        receiveManage.registerReceiver(downloadReceiver, filter);
     }
 
     @Override
     public void onCancel(Object o) {
-        application.unregisterReceiver(downloadReceiver);
+        if (downloadReceiver != null) {
+            receiveManage.unregisterReceiver(downloadReceiver);
+            downloadReceiver = null;
+        }
     }
 
-    ///////////////////////////////////////////
-
-    public BroadcastReceiver createBroadcastReceiver(final EventChannel.EventSink eventSink) {
-        return new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                if (intent != null && intent.getAction() != null && intent.getAction().equals(DownloadManager.ACTION_DOWNLOAD_COMPLETE)) {
-//                    timer.cancel();
-//                    timer = null;
-//                    long id = intent.getLongExtra("extra_download_id", 0);
-//                    queryTask(id);
-                } else if (intent != null && intent.getAction() != null && intent.getAction().equals(DOWNLOAD_STATUS)) {
-                    int progress = intent.getIntExtra("progress", 0);
-                    int status = intent.getIntExtra("status", 0);
-                    long id = intent.getLongExtra("id", 0);
-                    String percent = intent.getStringExtra("percent");
-                    int total = intent.getIntExtra("total", 0);
-                    double planTime = intent.getDoubleExtra("planTime", 0);
-                    double speed = intent.getDoubleExtra("speed", 0);
-                    String address = intent.getStringExtra("address");
-
-                    eventSink.success(ResultMap.getInstance()
-                            .pubClear("progress", progress)
-                            .put("status", status)
-                            .put("id", id)
-                            .put("percent", percent)
-                            .put("total", total)
-                            .put("planTime", planTime)
-                            .put("speed", speed)
-                            .put("address", address)
-                            .getMap());
-                }
-            }
-        };
+    /**
+     * 关联到Activity
+     *
+     * @param binding
+     */
+    @Override
+    public void onAttachedToActivity(ActivityPluginBinding binding) {
+        activity = binding.getActivity();
+        receiveManage = new ReceiveManage(activity.getApplicationContext(), this);
+        updateUtils = new UpdateManager(activity);
+        PermissionsResult permissionsResult = new PermissionsResult(activity, updateUtils);
+        binding.addActivityResultListener(permissionsResult);
+        binding.addRequestPermissionsResultListener(permissionsResult);
     }
 
+    @Override
+    public void onDetachedFromActivityForConfigChanges() {
+
+    }
+
+    @Override
+    public void onReattachedToActivityForConfigChanges(ActivityPluginBinding binding) {
+
+    }
+
+    @Override
+    public void onDetachedFromActivity() {
+        if (downloadReceiver != null) {
+            receiveManage.unregisterReceiver(downloadReceiver);
+            downloadReceiver = null;
+        }
+    }
 }
